@@ -1,0 +1,23 @@
+# ==========================================
+# Dependencias del Backend FastAPI
+# Proyecto: Analizador Inteligente de Respuestas de Clientes
+# ==========================================
+
+# Framework Web y Servidor ASGI
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+
+# Validación de Esquemas y Contratos de Datos
+pydantic>=2.6.0
+email-validator>=2.1.0
+
+# Conexión a Base de Datos MySQL y ORM
+sqlalchemy>=2.0.28
+pymysql>=1.1.0
+cryptography>=42.0.0
+
+# Cliente HTTP para Integración y Pruebas
+requests>=2.31.0
+
+# Gestión de Variables de Entorno
+python-dotenv>=1.0.1
