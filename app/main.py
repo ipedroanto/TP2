@@ -2,6 +2,7 @@ from typing import List, Optional, Dict
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends, Query, status
 from pydantic import BaseModel, Field, EmailStr
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import engine, Base, get_db
@@ -51,6 +52,46 @@ class ResenaResponse(BaseModel):
 @app.get("/salud", tags=["Mantenimiento"])
 def verificar_salud():
     return {"estado": "saludable", "fecha": datetime.utcnow()}
+
+@app.get("/metricas", tags=["Opiniones"])
+def obtener_metricas(db: Session = Depends(get_db)):
+    total_resenas = db.query(ResenaDB).count()
+    promedio = db.query(func.avg(ResenaDB.puntuacion)).scalar()
+    total_insatisfechas = db.query(ResenaDB).filter(ResenaDB.puntuacion <= 2).count()
+    alertas_criticas_activas = (
+        db.query(ResenaDB)
+        .filter(
+            ResenaDB.alerta_critica.is_(True),
+            ResenaDB.estado_gestion == "Pendiente",
+        )
+        .count()
+    )
+    pendientes = (
+        db.query(ResenaDB)
+        .filter(ResenaDB.estado_gestion == "Pendiente")
+        .count()
+    )
+    distribucion_consultada = dict(
+        db.query(ResenaDB.puntuacion, func.count(ResenaDB.id))
+        .group_by(ResenaDB.puntuacion)
+        .all()
+    )
+
+    return {
+        "promedio_satisfaccion": round(float(promedio or 0), 2),
+        "total_resenas": total_resenas,
+        "porcentaje_insatisfechos": (
+            round(total_insatisfechas / total_resenas * 100, 2)
+            if total_resenas
+            else 0
+        ),
+        "alertas_criticas_activas": alertas_criticas_activas,
+        "resenas_pendientes_atencion": pendientes,
+        "distribucion_puntuaciones": {
+            puntuacion: distribucion_consultada.get(puntuacion, 0)
+            for puntuacion in range(1, 6)
+        },
+    }
 
 @app.post("/analizar-reseña", response_model=ResenaResponse, status_code=status.HTTP_201_CREATED, tags=["Opiniones"])
 def analizar_y_registrar_reseña(resena: ResenaCreate, db: Session = Depends(get_db)):

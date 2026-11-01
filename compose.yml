@@ -65,6 +65,21 @@ services:
     depends_on:
       - python-api
 
+  # Interfaz Streamlit del proyecto.
+  streamlit-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: streamlit-ui
+    restart: unless-stopped
+    command: ["streamlit", "run", "app/app_ui.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    environment:
+      API_URL: "http://python-api:8000"
+    ports:
+      - "8501:8501"
+    depends_on:
+      - python-api
+
 # ==========================================
 # Volúmenes Persistentes y Red Unificada
 # ==========================================

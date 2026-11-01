@@ -21,3 +21,9 @@ requests>=2.31.0
 
 # Gestión de Variables de Entorno
 python-dotenv>=1.0.1
+
+# Creación de aplicaciones web interactivas desde Python
+Streamlit==1.66.1
+
+# Librería para manipulación y análisis de datos
+Pandas==3.1.0
