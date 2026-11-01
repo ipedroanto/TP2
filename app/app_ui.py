@@ -11,8 +11,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Dirección del backend de FastAPI
+# Direcciones de conexión
 API_URL = os.getenv("API_URL", "http://localhost:8000")
+N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "http://localhost:5678/webhook/reseña")
+N8N_TEST_WEBHOOK_URL = os.getenv("N8N_TEST_WEBHOOK_URL", "http://localhost:5678/webhook-test/reseña")
 
 # =========================================
 # Funciones Auxiliares de Comunicación HTTP
@@ -56,8 +58,8 @@ def actualizar_estado_resena(resena_id, nuevo_estado):
     except Exception:
         return False
 
-def enviar_resena(cliente, correo, puntuacion, comentario, categoria):
-    """Registra una nueva reseña en el sistema mediante HTTP POST."""
+def enviar_resena_directa(cliente, correo, puntuacion, comentario, categoria):
+    """Registra una nueva reseña directamente en el backend de FastAPI (HTTP POST)."""
     try:
         payload = {
             "cliente": cliente,
@@ -68,6 +70,25 @@ def enviar_resena(cliente, correo, puntuacion, comentario, categoria):
         }
         respuesta = requests.post(f"{API_URL}/analizar-reseña", json=payload, timeout=5)
         return respuesta.status_code, respuesta.json()
+    except Exception as e:
+        return 500, {"detail": str(e)}
+
+def enviar_resena_n8n(cliente, correo, puntuacion, comentario, categoria, target_url):
+    """Envía la reseña al Webhook de n8n para el procesamiento orquestado end-to-end."""
+    try:
+        payload = {
+            "cliente": cliente,
+            "correo": correo,
+            "puntuacion": int(puntuacion),
+            "comentario": comentario,
+            "categoria": categoria
+        }
+        respuesta = requests.post(target_url, json=payload, timeout=10)
+        try:
+            contenido = respuesta.json()
+        except Exception:
+            contenido = {"respuesta_texto": respuesta.text}
+        return respuesta.status_code, contenido
     except Exception as e:
         return 500, {"detail": str(e)}
 
@@ -197,7 +218,20 @@ if opcion_menu == "📊 Dashboard de Resultados":
 
 elif opcion_menu == "📝 Registrar Nueva Reseña":
     st.title("📝 Formulario de Recepción de Opiniones")
-    st.caption("Ingreso de datos para procesamiento inmediato y validación con Pydantic")
+    st.caption("Ingreso de datos para procesamiento punta a punta en el MVP orquestado")
+
+    # Configuración del modo de procesamiento
+    with st.expander("⚙️ Configuración del Flujo de Procesamiento", expanded=False):
+        modo_procesamiento = st.radio(
+            "Selecciona el destino del envío:",
+            [
+                "🔄 Orquestador n8n (Flujo completo End-to-End)",
+                "🧪 n8n Test URL (Para pruebas en vivo con editor abierto)",
+                "⚡ Directo a FastAPI Backend"
+            ],
+            index=0
+        )
+        custom_n8n_url = st.text_input("URL Webhook n8n Personalizada (Opcional):", value=N8N_WEBHOOK_URL)
 
     with st.form("form_resena", clear_on_submit=True):
         col_a, col_b = st.columns(2)
@@ -224,15 +258,28 @@ elif opcion_menu == "📝 Registrar Nueva Reseña":
             if not cliente or not correo or not comentario:
                 st.error("⚠️ Por favor completa todos los campos obligatorios (*).")
             else:
-                codigo_http, respuesta = enviar_resena(cliente, correo, puntuacion, comentario, categoria)
+                if "Orquestador n8n" in modo_procesamiento:
+                    target = custom_n8n_url or N8N_WEBHOOK_URL
+                    st.info(f"📡 Enviando reseña a través del Orquestador n8n (`{target}`)...")
+                    codigo_http, respuesta = enviar_resena_n8n(cliente, correo, puntuacion, comentario, categoria, target)
+                elif "Test URL" in modo_procesamiento:
+                    target = N8N_TEST_WEBHOOK_URL
+                    st.info(f"🧪 Enviando reseña a n8n Test URL (`{target}`). Asegúrate de presionar 'Listen for test event' en n8n...")
+                    codigo_http, respuesta = enviar_resena_n8n(cliente, correo, puntuacion, comentario, categoria, target)
+                else:
+                    st.info(f"⚡ Enviando reseña directamente al Backend de FastAPI (`{API_URL}`)...")
+                    codigo_http, respuesta = enviar_resena_directa(cliente, correo, puntuacion, comentario, categoria)
                 
                 if codigo_http in (200, 201):
-                    st.success(f"✅ ¡Opinión registrada con éxito! (ID de Registro: #{respuesta.get('id')})")
-                    if respuesta.get("alerta_critica"):
-                        st.warning("⚠️ Su puntuación ha activado un protocolo de atención prioritaria por baja calificación.")
-                    st.json(respuesta)
+                    st.success(f"✅ ¡Opinión enviada exitosamente! (Código HTTP {codigo_http})")
+                    if isinstance(respuesta, dict):
+                        if respuesta.get("alerta_critica"):
+                            st.warning("⚠️ La puntuación ingresada activó un protocolo de alerta crítica por baja calificación.")
+                        st.json(respuesta)
+                    else:
+                        st.write(respuesta)
                 elif codigo_http == 422:
-                    st.error("❌ Error de validación en los datos ingresados (Pydantic HTTP 422). Verifique el correo electrónico.")
+                    st.error("❌ Error de validación en los datos ingresados (Pydantic HTTP 422). Verifique el formato de correo o rango de puntuación.")
                     st.json(respuesta)
                 else:
                     st.error(f"❌ Error al procesar la solicitud (Código HTTP {codigo_http}).")
